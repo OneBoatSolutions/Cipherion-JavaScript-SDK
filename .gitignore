@@ -1,0 +1,6 @@
+# Logs
+cipherion-logs/
+*.log
+node_modules
+.env
+dist
