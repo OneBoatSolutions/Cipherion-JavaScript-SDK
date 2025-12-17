@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "JavaScript/TypeScript SDK for Cipherion Encryption API",
   "main": "dist/index.js",
-   "types": "dist/index.d.ts",
-   "scripts": {
+  "types": "dist/index.d.ts",
+  "scripts": {
     "build": "tsc",
     "dev": "ts-node src/index.ts",
     "test": "jest",
@@ -14,18 +14,27 @@
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
   },
-  "keywords": ["encryption", "api", "sdk", "typescript", "javascript", "security"],
+  "keywords": [
+    "encryption",
+    "api",
+    "sdk",
+    "typescript",
+    "javascript",
+    "security"
+  ],
   "author": "",
   "license": "MIT",
-   "files": [
+  "files": [
     "dist",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs",
+    "LICENSE"
   ],
-    "engines": {
+  "engines": {
     "node": ">=14.0.0"
   },
-   "repository": {
+  "repository": {
     "type": "git",
     "url": "https://github.com/OneBoatSolutions/Cipherion-JavaScript-SDK.git"
   },
@@ -40,9 +49,9 @@
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
     "eslint": "^9.34.0",
-    "jest": "^30.1.3",
+    "jest": "^30.2.0",
     "prettier": "^3.6.2",
-    "ts-jest": "^29.4.1",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
   }

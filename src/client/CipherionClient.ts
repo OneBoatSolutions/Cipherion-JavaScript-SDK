@@ -1,3 +1,4 @@
+// src/client/CipherionClient.ts
 import dotenv from 'dotenv';
 import { CipherionConfig, MigrationOptions, MigrationResult } from '../types/client';
 import {
@@ -5,6 +6,10 @@ import {
   DecryptResponse,
   DeepEncryptResponse,
   DeepDecryptResponse,
+  DeepEncryptOptions,
+  DeepDecryptOptions,
+  DeepEncryptRequest,
+  DeepDecryptRequest,
 } from '../types/api';
 import { HttpClient } from '../utils/http';
 import { Validator } from '../utils/validation';
@@ -34,10 +39,7 @@ export class CipherionClient {
     this.migrationHelper = new MigrationHelper(this);
 
     if (this.config.enableLogging) {
-      this.logger.info('CipherionClient initialized', {
-        projectId: this.config.projectId,
-        baseUrl: this.config.baseUrl,
-      });
+      this.logger.info('CipherionClient initialized');
     }
   }
 
@@ -55,12 +57,31 @@ export class CipherionClient {
   }
 
   /**
-   * Encrypts a string using basic encryption
+   * Helper to determine data type
+   */
+  private getDataType(data: any): string {
+    if (data === null) return 'null';
+    if (Array.isArray(data)) return 'array';
+    return typeof data;
+  }
+
+  /**  Encrypts simple string
+   * *@param data - The data string
+   * @param options - Optional Encryption configuration
+   * @returns Promise resolving to Encrypted data with metadata
+   * * @example
+   * ```typescript
+   * 
+   * const result = await client.encrypt(data);
+   *
+   * ```
    */
   async encrypt(data: string): Promise<string> {
+    const startTime = Date.now();
+    
     try {
       Validator.validateData(data);
-      const finalPassphrase =  this.config.passphrase;
+      const finalPassphrase = this.config.passphrase;
       
       if (!finalPassphrase) {
         throw new CipherionError('Passphrase is required', 400);
@@ -74,22 +95,50 @@ export class CipherionClient {
       );
 
       if (this.config.enableLogging) {
-        this.logger.info('Basic encryption completed successfully', {
+        const durationMs = Date.now() - startTime;
+        this.logger.logCryptoOperation('encrypt', 'success', {
+          dataType: this.getDataType(data),
           dataLength: data.length,
+          durationMs,
+          statusCode: 200,
         });
       }
 
       return response.data.encrypted_output;
-    } catch (error) {
-      this.logger.error('Basic encryption failed', error as Error);
-      throw error;
+    } catch (error: any) {
+      const status = error.response?.status || 500;
+      const serverMessage = error.response?.data?.message || error.message;
+      const durationMs = Date.now() - startTime;
+
+      if (this.config.enableLogging) {
+        this.logger.logCryptoOperation('encrypt', 'error', {
+          dataType: this.getDataType(data),
+          dataLength: data?.length,
+          durationMs,
+          statusCode: status,
+          errorMessage: serverMessage,
+        });
+      }
+
+      throw new CipherionError(serverMessage, status);
     }
   }
 
   /**
-   * Decrypts a string using basic decryption
+   * Decrypts simple string
+   * * @param data - The data string
+   * @param options - Optional decryption configuration
+   * @returns Promise resolving to decrypted data with metadata
+   * * @example
+   * ```typescript
+   * 
+   * const result = await client.decrypt(data);
+   *
+   * ```
    */
   async decrypt(encryptedData: string): Promise<string> {
+    const startTime = Date.now();
+    
     try {
       Validator.validateEncryptedData(encryptedData);
       const finalPassphrase = this.config.passphrase;
@@ -104,23 +153,57 @@ export class CipherionClient {
       );
 
       if (this.config.enableLogging) {
-        this.logger.info('Basic decryption completed successfully');
+        const durationMs = Date.now() - startTime;
+        this.logger.logCryptoOperation('decrypt', 'success', {
+          dataType: 'string',
+          dataLength: encryptedData.length,
+          durationMs,
+          statusCode: 200,
+        });
       }
 
       return response.data.plaintext;
-    } catch (error) {
-      this.logger.error('Basic decryption failed', error as Error);
-      throw error;
+    } catch (error: any) {
+      const status = error.response?.status || 500;
+      const serverMessage = error.response?.data?.message || error.message;
+      const durationMs = Date.now() - startTime;
+
+      if (this.config.enableLogging) {
+        this.logger.logCryptoOperation('decrypt', 'error', {
+          dataType: 'string',
+          dataLength: encryptedData?.length,
+          durationMs,
+          statusCode: status,
+          errorMessage: serverMessage,
+        });
+      }
+
+      throw new CipherionError(serverMessage, status);
     }
   }
 
-  /**
+ /**
    * Encrypts complex data structures while preserving structure
+   * * @param data - The data structure to encrypt
+   * @param options - Optional encryption configuration
+   * @returns Promise resolving to encrypted data with metadata
+   * * @example
+   * ```typescript
+   * * // Simple usage (no exclusions)
+   * const result = await client.deepEncrypt(data);
+   * * // With field exclusions
+   * const result = await client.deepEncrypt(data, {
+   * exclude_fields: ['profile.id', 'users[0]'],
+   * exclude_patterns: ['_id', '*_at']
+   * });
+   * ```
    */
-  async deepEncrypt(data: any): Promise<DeepEncryptResponse['data']> {
+  async deepEncrypt(data: any, options?: DeepEncryptOptions): Promise<DeepEncryptResponse['data']> {
+    const startTime = Date.now();
+    
     try {
       Validator.validateData(data);
-      const finalPassphrase =  this.config.passphrase;
+      const finalPassphrase = this.config.passphrase;
       
       if (!finalPassphrase) {
         throw new CipherionError('Passphrase is required', 400);
@@ -128,29 +211,72 @@ export class CipherionClient {
       
       Validator.validatePassphrase(finalPassphrase);
 
+      const requestBody: DeepEncryptRequest = {
+        data,
+        passphrase: finalPassphrase,
+        ...(options?.exclude_fields && { exclude_fields: options.exclude_fields }),
+        ...(options?.exclude_patterns && { exclude_patterns: options.exclude_patterns }),
+      };
+
       const response = await this.httpClient.post<DeepEncryptResponse>(
         `/api/v1/crypto/deep_encrypt/${this.config.projectId}`,
-        { data, passphrase: finalPassphrase }
+        requestBody
       );
 
       if (this.config.enableLogging) {
-        this.logger.info('Deep encryption completed successfully', {
+        const durationMs = Date.now() - startTime;
+        this.logger.logCryptoOperation('deepEncrypt', 'success', {
+          dataType: this.getDataType(data),
           totalFields: response.data.meta.totalFields,
           billableFields: response.data.meta.billableFields,
+          excludedFields: options?.exclude_fields?.length || 0,
+          excludedPatterns: options?.exclude_patterns?.length || 0,
+          durationMs,
+          statusCode: 200,
         });
       }
 
       return response.data;
-    } catch (error) {
-      this.logger.error('Deep encryption failed', error as Error);
-      throw error;
+    } catch (error: any) {
+      const status = error.response?.status || 500;
+      const serverMessage = error.response?.data?.message || error.message;
+      const durationMs = Date.now() - startTime;
+
+      if (this.config.enableLogging) {
+        this.logger.logCryptoOperation('deepEncrypt', 'error', {
+          dataType: this.getDataType(data),
+          excludedFields: options?.exclude_fields?.length || 0,
+          excludedPatterns: options?.exclude_patterns?.length || 0,
+          durationMs,
+          statusCode: status,
+          errorMessage: serverMessage,
+        });
+      }
+
+      throw new CipherionError(serverMessage, status);
     }
   }
 
   /**
    * Decrypts complex data structures that were encrypted using deepEncrypt
+   * * @param encryptedData - The encrypted data structure to decrypt
+   * @param options - Optional decryption configuration
+   * @returns Promise resolving to decrypted data with metadata
+   * * @example
+   * ```typescript
+   **  // Simple usage (no exclusions)
+   * const result = await client.deepDecrypt(encryptedData);
+   * * // With field exclusions and graceful failure
+   * const result = await client.deepDecrypt(encryptedData, {
+   * exclude_fields: ['profile.id', 'users[0]'],
+   * exclude_patterns: ['_id', '*_at'],
+   * fail_gracefully: true
+   * });
+   * ```
    */
-  async deepDecrypt(encryptedData: any): Promise<DeepDecryptResponse['data']> {
+  async deepDecrypt(encryptedData: any, options?: DeepDecryptOptions): Promise<DeepDecryptResponse['data']> {
+    const startTime = Date.now();
+    
     try {
       Validator.validateEncryptedData(encryptedData);
       const finalPassphrase = this.config.passphrase;
@@ -159,28 +285,60 @@ export class CipherionClient {
         throw new CipherionError('Passphrase is required', 400);
       }
 
+      const requestBody: DeepDecryptRequest = {
+        encrypted: encryptedData,
+        passphrase: finalPassphrase,
+        ...(options?.exclude_fields && { exclude_fields: options.exclude_fields }),
+        ...(options?.exclude_patterns && { exclude_patterns: options.exclude_patterns }),
+        ...(options?.fail_gracefully !== undefined && { fail_gracefully: options.fail_gracefully }),
+      };
+
       const response = await this.httpClient.post<DeepDecryptResponse>(
         `/api/v1/crypto/deep_decrypt/${this.config.projectId}`,
-        { encrypted: encryptedData, passphrase: finalPassphrase }
+        requestBody
       );
 
       if (this.config.enableLogging) {
-        this.logger.info('Deep decryption completed successfully', {
+        const durationMs = Date.now() - startTime;
+        this.logger.logCryptoOperation('deepDecrypt', 'success', {
+          dataType: this.getDataType(encryptedData),
           totalFields: response.data.meta.totalFields,
           billableFields: response.data.meta.billableFields,
+          excludedFields: options?.exclude_fields?.length || 0,
+          excludedPatterns: options?.exclude_patterns?.length || 0,
+          failGracefully: options?.fail_gracefully,
+          durationMs,
+          statusCode: 200,
         });
       }
 
       return response.data;
-    } catch (error) {
-      this.logger.error('Deep decryption failed', error as Error);
-      throw error;
+    } catch (error: any) {
+      const status = error.response?.status || 500;
+      const serverMessage = error.response?.data?.message || error.message;
+      const durationMs = Date.now() - startTime;
+
+      if (this.config.enableLogging) {
+        this.logger.logCryptoOperation('deepDecrypt', 'error', {
+          dataType: this.getDataType(encryptedData),
+          excludedFields: options?.exclude_fields?.length || 0,
+          excludedPatterns: options?.exclude_patterns?.length || 0,
+          failGracefully: options?.fail_gracefully,
+          durationMs,
+          statusCode: status,
+          errorMessage: " data may be corrupted or "+serverMessage,
+        });
+      }
+
+      throw new CipherionError(serverMessage, status);
     }
   }
 
   /**
-   * Migrates an array of data by encrypting each item
-   * Useful for batch operations with queue and background worker patterns
+   * Migrates an array of data by encrypting each item in batches.
+   * Useful for handling large datasets without blocking the event loop or hitting API rate limits.
+   * * @param dataArray - Array of items to encrypt
+   * @param options - Migration configuration (batch size, retries, etc.)
    */
   async migrateEncrypt(
     dataArray: any[],
@@ -192,55 +350,129 @@ export class CipherionClient {
       throw new CipherionError('Passphrase is required for migration', 400);
     }
 
-    this.logger.info('Starting encryption migration', {
-      totalItems: dataArray.length,
-      batchSize: options?.batchSize || 10,
-    });
+    if (!Array.isArray(dataArray)) {
+      throw new CipherionError('dataArray must be an array', 400);
+    }
 
-    const result = await this.migrationHelper.encryptMigration(
-      dataArray,
-      finalPassphrase,
-      options
-    );
+    if (dataArray.length === 0) {
+      this.logger.warn('Empty array provided for encryption migration');
+      return {
+        successful: [],
+        failed: [],
+        summary: {
+          total: 0,
+          processed: 0,
+          successful: 0,
+          failed: 0,
+          percentage: 100,
+        },
+      };
+    }
 
-    this.logger.info('Encryption migration completed', {
-      successful: result.summary.successful,
-      failed: result.summary.failed,
-    });
+    if (this.config.enableLogging) {
+      this.logger.logMigrationOperation('migrateEncrypt', 'started', {
+        totalItems: dataArray.length,
+        batchSize: options?.batchSize || 10,
+      });
+    }
 
-    return result;
+    try {
+      const result = await this.migrationHelper.encryptMigration(
+        dataArray,
+        finalPassphrase,
+        options
+      );
+
+      if (this.config.enableLogging) {
+        this.logger.logMigrationOperation('migrateEncrypt', 'completed', {
+          totalItems: result.summary.total,
+          processed: result.summary.processed,
+          successful: result.summary.successful,
+          failed: result.summary.failed,
+          percentage: result.summary.percentage,
+        });
+      }
+
+      return result;
+    } catch (error: any) {
+      if (this.config.enableLogging) {
+        this.logger.logMigrationOperation('migrateEncrypt', 'error', {
+          totalItems: dataArray.length,
+          errorMessage: error.message,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
-   * Migrates an array of encrypted data by decrypting each item
+   * Migrates an array of encrypted data by decrypting each item in batches.
+   * * @param encryptedArray - Array of encrypted items to decrypt
+   * @param options - Migration configuration
    */
   async migrateDecrypt(
     encryptedArray: any[],
     options?: MigrationOptions
   ): Promise<MigrationResult> {
-    const finalPassphrase =  this.config.passphrase;
+    const finalPassphrase = this.config.passphrase;
     
     if (!finalPassphrase) {
       throw new CipherionError('Passphrase is required for migration', 400);
     }
 
-    this.logger.info('Starting decryption migration', {
-      totalItems: encryptedArray.length,
-      batchSize: options?.batchSize || 10,
-    });
+    if (!Array.isArray(encryptedArray)) {
+      throw new CipherionError('encryptedArray must be an array', 400);
+    }
 
-    const result = await this.migrationHelper.decryptMigration(
-      encryptedArray,
-      finalPassphrase,
-      options
-    );
+    if (encryptedArray.length === 0) {
+      this.logger.warn('Empty array provided for decryption migration');
+      return {
+        successful: [],
+        failed: [],
+        summary: {
+          total: 0,
+          processed: 0,
+          successful: 0,
+          failed: 0,
+          percentage: 100,
+        },
+      };
+    }
 
-    this.logger.info('Decryption migration completed', {
-      successful: result.summary.successful,
-      failed: result.summary.failed,
-    });
+    if (this.config.enableLogging) {
+      this.logger.logMigrationOperation('migrateDecrypt', 'started', {
+        totalItems: encryptedArray.length,
+        batchSize: options?.batchSize || 10,
+      });
+    }
 
-    return result;
+    try {
+      const result = await this.migrationHelper.decryptMigration(
+        encryptedArray,
+        finalPassphrase,
+        options
+      );
+
+      if (this.config.enableLogging) {
+        this.logger.logMigrationOperation('migrateDecrypt', 'completed', {
+          totalItems: result.summary.total,
+          processed: result.summary.processed,
+          successful: result.summary.successful,
+          failed: result.summary.failed,
+          percentage: result.summary.percentage,
+        });
+      }
+
+      return result;
+    } catch (error: any) {
+      if (this.config.enableLogging) {
+        this.logger.logMigrationOperation('migrateDecrypt', 'error', {
+          totalItems: encryptedArray.length,
+          errorMessage: error.message,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -252,21 +484,35 @@ export class CipherionClient {
   }
 
   /**
-   * Updates the client configuration
+   * Updates configuration (non-sensitive fields only)
    */
   updateConfig(newConfig: Partial<CipherionConfig>): void {
-    this.config = { ...this.config, ...newConfig };
+    const { apiKey, passphrase, ...safeConfig } = newConfig;
+    
+    if (apiKey || passphrase) {
+      this.logger.warn('Attempted to update sensitive credentials - operation ignored');
+      throw new CipherionError(
+        'Cannot update apiKey or passphrase after initialization. Create a new client instance instead.',
+        403
+      );
+    }
+
+    this.config = { ...this.config, ...safeConfig };
     Validator.validateConfig(this.config);
     
-    this.httpClient = new HttpClient(
-      this.config.baseUrl,
-      this.config.apiKey,
-      this.config.timeout,
-      this.logger
-    );
+    if (safeConfig.baseUrl || safeConfig.timeout !== undefined) {
+      this.httpClient = new HttpClient(
+        this.config.baseUrl,
+        this.config.apiKey,
+        this.config.timeout,
+        this.logger
+      );
+    }
 
     if (this.config.enableLogging) {
-      this.logger.info('Configuration updated');
+      this.logger.info('Configuration updated', {
+        updatedFields: Object.keys(safeConfig),
+      });
     }
   }
 }

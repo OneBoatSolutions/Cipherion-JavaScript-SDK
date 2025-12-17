@@ -1,3 +1,5 @@
+// src/types/client.ts
+
 export interface CipherionConfig {
   baseUrl: string;
   projectId: string;
@@ -9,12 +11,20 @@ export interface CipherionConfig {
   enableLogging?: boolean;
 }
 
+
+export interface ExclusionOptions {
+  exclude_fields?: string[];
+  exclude_patterns?: string[];
+  fail_gracefully?: boolean;
+}
+
 export interface MigrationOptions {
   batchSize?: number;
   delayBetweenBatches?: number;
   maxRetries?: number;
   onProgress?: (progress: MigrationProgress) => void;
   onError?: (error: Error, item: any) => void;
+  exclusionOptions?: ExclusionOptions;
 }
 
 export interface MigrationProgress {

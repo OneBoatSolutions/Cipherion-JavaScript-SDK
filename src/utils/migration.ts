@@ -1,5 +1,6 @@
+// src/utils/migration.ts
 import { CipherionClient } from '../client/CipherionClient';
-import { MigrationOptions, MigrationProgress, MigrationResult } from '../types/client';
+import { ExclusionOptions, MigrationOptions, MigrationResult } from '../types/client';
 
 export class MigrationHelper {
   private client: CipherionClient;
@@ -19,7 +20,13 @@ export class MigrationHelper {
       maxRetries = 3,
       onProgress,
       onError,
+      exclusionOptions,
     } = options;
+
+    // SECURITY FIX: Validate batch size
+    const safeBatchSize = Math.min(Math.max(1, batchSize), 100); // Between 1-100
+    const safeDelay = Math.max(0, delayBetweenBatches); // Non-negative
+    const safeRetries = Math.min(Math.max(1, maxRetries), 10); // Between 1-10
 
     const result: MigrationResult = {
       successful: [],
@@ -33,10 +40,10 @@ export class MigrationHelper {
       },
     };
 
-    for (let i = 0; i < dataArray.length; i += batchSize) {
-      const batch = dataArray.slice(i, i + batchSize);
-      const batchPromises = batch.map((item, index) =>
-        this.processEncryptionWithRetry(item, passphrase, maxRetries)
+    for (let i = 0; i < dataArray.length; i += safeBatchSize) {
+      const batch = dataArray.slice(i, i + safeBatchSize);
+      const batchPromises = batch.map((item) =>
+        this.processEncryptionWithRetry(item, safeRetries, exclusionOptions)
           .then((encrypted) => {
             result.successful.push(encrypted);
             result.summary.successful++;
@@ -45,22 +52,36 @@ export class MigrationHelper {
             const failedItem = { item, error };
             result.failed.push(failedItem);
             result.summary.failed++;
-            if (onError) onError(error, item);
+            if (onError) {
+              try {
+                onError(error, item);
+              } catch (callbackError) {
+                // Prevent callback errors from breaking migration
+                console.error('Error in onError callback:', callbackError);
+              }
+            }
           })
           .finally(() => {
             result.summary.processed++;
             result.summary.percentage = Math.round(
               (result.summary.processed / result.summary.total) * 100
             );
-            if (onProgress) onProgress(result.summary);
+            if (onProgress) {
+              try {
+                onProgress(result.summary);
+              } catch (callbackError) {
+                // Prevent callback errors from breaking migration
+                console.error('Error in onProgress callback:', callbackError);
+              }
+            }
           })
       );
 
       await Promise.allSettled(batchPromises);
 
       // Add delay between batches to prevent rate limiting
-      if (i + batchSize < dataArray.length) {
-        await this.delay(delayBetweenBatches);
+      if (i + safeBatchSize < dataArray.length && safeDelay > 0) {
+        await this.delay(safeDelay);
       }
     }
 
@@ -78,7 +99,13 @@ export class MigrationHelper {
       maxRetries = 3,
       onProgress,
       onError,
+      exclusionOptions,
     } = options;
+
+    // SECURITY FIX: Validate batch size
+    const safeBatchSize = Math.min(Math.max(1, batchSize), 100);
+    const safeDelay = Math.max(0, delayBetweenBatches);
+    const safeRetries = Math.min(Math.max(1, maxRetries), 10);
 
     const result: MigrationResult = {
       successful: [],
@@ -92,10 +119,10 @@ export class MigrationHelper {
       },
     };
 
-    for (let i = 0; i < encryptedArray.length; i += batchSize) {
-      const batch = encryptedArray.slice(i, i + batchSize);
-      const batchPromises = batch.map((item, index) =>
-        this.processDecryptionWithRetry(item, passphrase, maxRetries)
+    for (let i = 0; i < encryptedArray.length; i += safeBatchSize) {
+      const batch = encryptedArray.slice(i, i + safeBatchSize);
+      const batchPromises = batch.map((item) =>
+        this.processDecryptionWithRetry(item, safeRetries, exclusionOptions)
           .then((decrypted) => {
             result.successful.push(decrypted);
             result.summary.successful++;
@@ -104,22 +131,34 @@ export class MigrationHelper {
             const failedItem = { item, error };
             result.failed.push(failedItem);
             result.summary.failed++;
-            if (onError) onError(error, item);
+            if (onError) {
+              try {
+                onError(error, item);
+              } catch (callbackError) {
+                console.error('Error in onError callback:', callbackError);
+              }
+            }
           })
           .finally(() => {
             result.summary.processed++;
             result.summary.percentage = Math.round(
               (result.summary.processed / result.summary.total) * 100
             );
-            if (onProgress) onProgress(result.summary);
+            if (onProgress) {
+              try {
+                onProgress(result.summary);
+              } catch (callbackError) {
+                console.error('Error in onProgress callback:', callbackError);
+              }
+            }
           })
       );
 
       await Promise.allSettled(batchPromises);
 
       // Add delay between batches
-      if (i + batchSize < encryptedArray.length) {
-        await this.delay(delayBetweenBatches);
+      if (i + safeBatchSize < encryptedArray.length && safeDelay > 0) {
+        await this.delay(safeDelay);
       }
     }
 
@@ -128,18 +167,22 @@ export class MigrationHelper {
 
   private async processEncryptionWithRetry(
     data: any,
-    passphrase: string,
-    maxRetries: number
+    maxRetries: number,
+    exclusionOptions?: ExclusionOptions
   ): Promise<any> {
     let lastError: Error;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await this.client.deepEncrypt(data);
+        // FIXED: Pass exclusionOptions directly as DeepEncryptOptions
+        return await this.client.deepEncrypt(data, exclusionOptions);
       } catch (error) {
         lastError = error as Error;
         if (attempt < maxRetries) {
-          await this.delay(1000 * attempt); // Exponential backoff
+          // Exponential backoff with jitter to prevent thundering herd
+          const baseDelay = 1000 * attempt;
+          const jitter = Math.random() * 500; // 0-500ms random jitter
+          await this.delay(baseDelay + jitter);
         }
       }
     }
@@ -149,18 +192,22 @@ export class MigrationHelper {
 
   private async processDecryptionWithRetry(
     encryptedData: any,
-    passphrase: string,
-    maxRetries: number
+    maxRetries: number,
+    exclusionOptions?: ExclusionOptions
   ): Promise<any> {
     let lastError: Error;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await this.client.deepDecrypt(encryptedData);
+        // FIXED: Pass exclusionOptions directly as DeepDecryptOptions
+        return await this.client.deepDecrypt(encryptedData, exclusionOptions);
       } catch (error) {
         lastError = error as Error;
         if (attempt < maxRetries) {
-          await this.delay(1000 * attempt);
+          // Exponential backoff with jitter
+          const baseDelay = 1000 * attempt;
+          const jitter = Math.random() * 500;
+          await this.delay(baseDelay + jitter);
         }
       }
     }

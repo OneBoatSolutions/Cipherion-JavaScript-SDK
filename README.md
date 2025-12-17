@@ -1,20 +1,19 @@
+
 # CipherionClient SDK
 
 <div align="center">
   
-![npm version](https://img.shields.io/npm/v/cipherion-client.svg?style=flat-square)
-![npm downloads](https://img.shields.io/npm/dm/cipherion-client.svg?style=flat-square)
-![build status](https://img.shields.io/github/workflow/status/yourusername/cipherion-client/CI?style=flat-square)
-![coverage](https://img.shields.io/codecov/c/github/OneBoatSolutions/Cipherion-JavaScript-SDK?style=flat-square)
-![license](https://img.shields.io/npm/l/cipherion-client.svg?style=flat-square)
-![node version](https://img.shields.io/node/v/cipherion-client.svg?style=flat-square)
+![npm version](https://img.shields.io/npm/v/@cipherion/client?style=flat-square)
+![npm downloads](https://img.shields.io/npm/dm/@cipherion/client?style=flat-square)
+![license](https://img.shields.io/npm/l/@cipherion/client?style=flat-square)
+![node version](https://img.shields.io/node/v/@cipherion/client?style=flat-square)
 ![typescript](https://img.shields.io/badge/TypeScript-Ready-blue?style=flat-square)
 
 **A robust JavaScript/TypeScript SDK for the Cipherion Encryption API**
 
-*Secure • Scalable • Enterprise-Ready*
 
-[Installation](#installation) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Support](#support)
+
+[Installation](#installation) • [Quick Start](#quick-start) • [Advanced Usage](#advanced-usage-selective-encryption) • [API Reference](#-api-reference) • [Support](#-support)
 
 </div>
 
@@ -22,13 +21,13 @@
 
 ## ✨ Features
 
-- 🔐 **Complete Encryption Suite** - Basic and deep object encryption/decryption
-- 🚀 **Enterprise Ready** - Built-in logging, error handling, and retry mechanisms  
-- 📦 **Migration Tools** - Batch processing with queue and background worker support
-- 🛡️ **Type Safe** - Full TypeScript support with comprehensive type definitions
-- 📊 **Compliance Logging** - Structured logging for audit and compliance requirements
-- ⚡ **High Performance** - Optimized for large-scale data processing
-- 🔧 **Highly Configurable** - Flexible configuration with environment variable support
+- 🔐 **Complete Encryption Suite** - Basic strings and structure-preserving object encryption.
+- 🎯 **Selective Encryption** - Granular control to exclude specific fields or patterns (e.g., IDs, timestamps) from encryption.
+- 🛡️ **Resilient Processing** - Graceful failure modes to handle partial data corruption without crashing.
+- 🚀 **Enterprise Ready** - Built-in logging, error handling, and exponential backoff retry mechanisms.
+- 📦 **Migration Tools** - Batch processing helpers for migrating large datasets.
+- 📊 **Compliance Logging** - Redacted, operation-centric logs for audit requirements.
+- ⚡ **High Performance** - Optimized for large-scale data processing with configurable batching.
 
 ## 🚀 Quick Start
 
@@ -43,31 +42,32 @@ npm install @cipherion/client
 Create a `.env` file in your project root:
 
 ```bash
-CIPHERION_BASE_URL=https://api.cipherion.com
+CIPHERION_BASE_URL=https://api.cipherion.in
 CIPHERION_PROJECT_ID=proj_your_project_id
 CIPHERION_API_KEY=your_api_key_here
 CIPHERION_PASSPHRASE=your_secure_passphrase_here
+
 ```
 
 ### Basic Usage
 
 ```javascript
-const { CipherionClient } = require('@cipherion/client');
+import { CipherionClient } from "@cipherion/client";
 
 // Initialize client
 const client = new CipherionClient();
 
 async function example() {
   try {
-    // Basic string encryption
+    // 1. single string encryption
     const encrypted = await client.encrypt("Hello, World!");
     console.log('Encrypted:', encrypted);
     
-    // Basic string decryption
+    // 2. encrypted  string decryption
     const decrypted = await client.decrypt(encrypted);
     console.log('Decrypted:', decrypted);
     
-    // Deep object encryption
+    // 3. Deep object encryption
     const userData = {
       name: "John Doe",
       email: "john@example.com",
@@ -75,7 +75,7 @@ async function example() {
     };
     
     const deepEncrypted = await client.deepEncrypt(userData);
-    const deepDecrypted = await client.deepDecrypt(deepEncrypted.encrypted);
+    const deepDecrypted = await client.deepDecrypt(deepEncrypted.data);
     
     console.log('Original:', userData);
     console.log('Decrypted:', deepDecrypted.data);
@@ -86,36 +86,56 @@ async function example() {
 }
 
 example();
+
 ```
 
-### TypeScript Usage
+## 🧠 Advanced Usage: Selective Encryption
+
+New in v1.1.0, you can exclude specific fields from encryption. This is critical for keeping database IDs (`_id`, `id`) and timestamps searchable while protecting PII.
+
+### 1. Excluding Fields & Patterns
 
 ```typescript
-import { CipherionClient, CipherionConfig } from '@cipherion/client';
+const user = {
+  id: 101,                    // Should stay plain
+  username: "bond_james",     // Should be encrypted
+  meta: {
+    login_ip: "192.168.1.1",  // Should stay plain (pattern match)
+    session_id: "sess_99"     // Should be encrypted
+  },
+  created_at: "2025-01-01"    // Should stay plain (pattern match)
+};
 
-interface UserData {
-  id: number;
-  name: string;
-  email: string;
+const result = await client.deepEncrypt(user, {
+  // Exclude specific paths (dot notation supported)
+  exclude_fields: ["id", "profile.id"],
+  
+  // Exclude by pattern (wildcards supported)
+  // Matches "created_at", "updated_at", "login_ip", etc.
+  exclude_patterns: ["*_at", "*_ip", "_id", "__v"] 
+});
+
+console.log(result.data.encrypted); 
+// 'id', 'created_at', and 'login_ip' remain visible plaintext.
+// 'username' and 'session_id' become encrypted strings.
+
+```
+
+### 2. Graceful Decryption
+
+In production, data might occasionally get corrupted or mixed with legacy plaintext. Use `fail_gracefully` to decrypt valid fields while preserving invalid ones instead of throwing an error.
+
+```typescript
+const result = await client.deepDecrypt(encryptedData, {
+  // If a field fails decryption, return the original value instead of crashing
+  fail_gracefully: true 
+});
+
+// Check metadata to see if anything failed silently
+if (result.meta.decryptionMetadata.failed_fields.length > 0) {
+  console.warn("Partial decryption occurred:", result.meta.decryptionMetadata.failed_fields);
 }
 
-const config: CipherionConfig = {
-  baseUrl: process.env.CIPHERION_BASE_URL!,
-  projectId: process.env.CIPHERION_PROJECT_ID!,
-  apiKey: process.env.CIPHERION_API_KEY!,
-  passphrase: process.env.CIPHERION_PASSPHRASE!,
-  logLevel: 'info'
-};
-
-const client = new CipherionClient(config);
-
-const userData: UserData = {
-  id: 1,
-  name: "Jane Smith", 
-  email: "jane@example.com"
-};
-
-const result = await client.deepEncrypt(userData);
 ```
 
 ## 📖 API Reference
@@ -123,233 +143,128 @@ const result = await client.deepEncrypt(userData);
 ### Core Methods
 
 | Method | Description | Returns |
-|--------|-------------|---------|
-| `encrypt(data)` | Encrypts a string | `Promise<string>` |
-| `decrypt(encryptedData)` | Decrypts a string | `Promise<string>` |
-| `deepEncrypt(data)` | Encrypts complex objects | `Promise<DeepEncryptResponse>` |
-| `deepDecrypt(encryptedData)` | Decrypts complex objects | `Promise<DeepDecryptResponse>` |
+| --- | --- | --- |
+| `encrypt(data)` | Encrypts a simple string. | `Promise<string>` |
+| `decrypt(encryptedData)` | Decrypts a simple string. | `Promise<string>` |
+| `deepEncrypt(data, options?)` | Encrypts objects/arrays with optional exclusions. | `Promise<DeepEncryptResponse>` |
+| `deepDecrypt(encryptedData, options?)` | Decrypts objects/arrays with optional graceful handling. | `Promise<DeepDecryptResponse>` |
 
 ### Migration Methods
 
 | Method | Description | Use Case |
-|--------|-------------|----------|
-| `migrateEncrypt(dataArray, options?)` | Batch encrypt array of objects | Large dataset encryption |
-| `migrateDecrypt(encryptedArray, options?)` | Batch decrypt array of objects | Large dataset decryption |
+| --- | --- | --- |
+| `migrateEncrypt(dataArray, options?)` | Batch encrypt array of objects. | Database migrations |
+| `migrateDecrypt(encryptedArray, options?)` | Batch decrypt array of objects. | Data recovery/export |
 
-### Configuration Methods
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `getConfig()` | Get current configuration (safe) | `CipherionConfig` |
-| `updateConfig(newConfig)` | Update client configuration | `void` |
-
-## 🔧 Configuration Options
+### Options Interface
 
 ```typescript
-interface CipherionConfig {
-  baseUrl: string;                    // API base URL
-  projectId: string;                  // Your project ID
-  apiKey: string;                     // Your API key
-  passphrase: string;         // Default passphrase
-  timeout?: number;                   // Request timeout (default: 30000ms)
-  retries?: number;                   // Max retries (default: 3)
-  logLevel?: 'error' | 'warn' | 'info' | 'debug';  // Log level
-  enableLogging?: boolean;            // Enable/disable logging
+interface DeepEncryptOptions {
+  exclude_fields?: string[];    // Exact paths: ['id', 'user.id']
+  exclude_patterns?: string[];  // Patterns: ['*_at', '_*']
 }
+
+interface DeepDecryptOptions {
+  exclude_fields?: string[];
+  exclude_patterns?: string[];
+  fail_gracefully?: boolean;    // Default: false
+}
+
 ```
 
 ## 📊 Migration & Batch Processing
 
-Perfect for enterprise scenarios requiring large-scale data processing:
+Perfect for enterprise scenarios requiring large-scale data processing. Includes automatic retries and rate limiting.
 
 ```javascript
 const migrationOptions = {
-  batchSize: 10,                      // Items per batch
-  delayBetweenBatches: 1000,         // Delay in ms
-  maxRetries: 3,                      // Retry attempts
+  batchSize: 50,           // Items processed per API call (1-100)
+  delayBetweenBatches: 500, // Ms to wait between batches
+  maxRetries: 3,           // Retry failed requests
   onProgress: (progress) => {
-    console.log(`Progress: ${progress.percentage}%`);
-  },
-  onError: (error, item) => {
-    console.error(`Failed item:`, error.message);
+    console.log(`Progress: ${progress.percentage}% (${progress.processed}/${progress.total})`);
   }
 };
 
-// Encrypt large dataset
-const result = await client.migrateEncrypt(
-  largeDataArray, 
-  passphrase, 
-  migrationOptions
-);
+const result = await client.migrateEncrypt(largeDataArray, migrationOptions);
 
 console.log(`Success: ${result.summary.successful}`);
 console.log(`Failed: ${result.summary.failed}`);
-```
 
-## 🔄 Queue Integration
-
-Built for enterprise queue systems like Bull, Agenda, or cloud-based solutions:
-
-```javascript
-const Queue = require('bull');
-const { CipherionClient } = require('@cipherion/client');
-
-const encryptionQueue = new Queue('encryption', 'redis://127.0.0.1:6379');
-const client = new CipherionClient();
-
-// Process encryption jobs
-encryptionQueue.process('encrypt-batch', async (job) => {
-  const { data, passphrase } = job.data;
-  return await client.deepEncrypt(data, passphrase);
-});
-
-// Add jobs to queue
-await encryptionQueue.add('encrypt-batch', {
-  data: userData,
-  passphrase: process.env.CIPHERION_PASSPHRASE
-});
 ```
 
 ## 📝 Logging
 
-All operations are logged to `cipherion-logs/` directory for compliance:
+The SDK auto-generates structured, redacted logs in the `cipherion-logs/` directory. Sensitive data (keys, payloads) is **never** logged.
+
+**File Structure:**
 
 ```
 cipherion-logs/
-├── combined.log     # All logs
-├── error.log        # Error logs only
+├── combined.log     # All operations
+├── error.log        # Failures only
+
 ```
 
-**Log Structure:**
-```json
-{
-  "timestamp": "2024-01-01T12:00:00.000Z",
-  "level": "info",
-  "message": "API Call",
-  "method": "POST",
-  "endpoint": "/api/v1/crypto/encrypt/proj_123",
-  "statusCode": 200,
-  "duration": 150
-}
+**Log Format:**
+
+```text
+2025-12-17 14:30:00 [info]: operation=deepEncrypt | status=success | dataType=object | totalFields=15 | excludedFields=2 | durationMs=120 | statusCode=200
+2025-12-17 14:35:00 [error]: operation=decrypt | status=error | dataType=string | statusCode=400 | error="Invalid passphrase"
+
 ```
 
-## ⚡ Performance & Best Practices
+## 🛡️ Security Best Practices
 
-### Memory Management
-```javascript
-// Process large datasets in chunks
-async function processLargeDataset(dataArray) {
-  const chunkSize = 1000;
-  for (let i = 0; i < dataArray.length; i += chunkSize) {
-    const chunk = dataArray.slice(i, i + chunkSize);
-    await client.migrateEncrypt(chunk);
-    
-    // Allow garbage collection
-    if (i % 10000 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-}
-```
-
-### Error Handling
-```javascript
-async function robustEncryption(data) {
-  try {
-    return await client.deepEncrypt(data);
-  } catch (error) {
-    if (error.statusCode === 429) {
-      // Rate limit - wait and retry
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      return await client.deepEncrypt(data);
-    }
-    throw error;
-  }
-}
-```
-
-### Security Best Practices
-- ✅ Use environment variables for credentials
-- ✅ Implement proper error handling
-- ✅ Monitor API usage and logs
-- ✅ Use strong passphrases (minimum 12 characters)
-- ✅ Rotate API keys regularly
-
-## 📚 Examples
-
-Explore comprehensive examples in the `/examples` directory:
-
-- **[Basic Usage](./examples/basic-usage.js)** - Simple encryption/decryption
-- **[TypeScript Example](./examples/typescript-example.ts)** - Full TypeScript implementation  
-- **[Migration Example](./examples/migration-example.js)** - Large-scale data processing
-- **[Queue Integration](./examples/queue-example.js)** - Background job processing
+1. **Credential Locking:** The SDK prevents updating `apiKey` or `passphrase` after initialization.
+2. **Environment Variables:** Always use `.env` files; never hardcode secrets.
+3. **Partial Encryption:** Use `exclude_fields` for IDs to maintain database indexing performance.
+4. **Error Handling:** Use `fail_gracefully` in read-heavy production paths to prevent UI crashes.
 
 ## 🛠️ Development
 
 ### Prerequisites
-- Node.js >= 14.0.0
-- npm >= 6.0.0
 
-### Setup
-```bash
-git clone https://github.com/OneBoatSolutions/Cipherion-JavaScript-SDK.git
-cd cipherion-client
-npm install
-```
+* Node.js >= 14.0.0
+* npm >= 6.0.0
+
+
+
 
 ### Scripts
+
 ```bash
 npm run build          # Build TypeScript
 npm run test           # Run tests
-npm run test:watch     # Watch mode testing
 npm run lint           # Lint code
-npm run format         # Format code
+
 ```
-
-## 📈 Supported Platforms
-
-| Platform | Support | Version |
-|----------|---------|---------|
-| Node.js | ✅ | >= 14.0.0 |
-| Browser | ⚠️ | Via bundler only |
-| TypeScript | ✅ | >= 4.0.0 |
-| ES Modules | ✅ | Native support |
-| CommonJS | ✅ | Native support |
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
-
-<!-- - 🐛 **Bug Reports**: [Open an issue](https://github.com/yourusername/cipherion-client/issues)
-- 💡 **Feature Requests**: [Start a discussion](https://github.com/yourusername/cipherion-client/discussions)
-- 🔧 **Pull Requests**: [Contribution workflow](./CONTRIBUTING.md#pull-request-workflow) -->
+We welcome contributions! Please see our [Contributing Guide](https://www.google.com/search?q=./CONTRIBUTING.md) for details.
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=./LICENSE) file for details.
 
 ## 🆘 Support
 
 ### Documentation
-- 📖 **[API Documentation](./docs/API.md)** - Complete API reference
-- 🔒 **[Security Guide](./SECURITY.md)** - Security best practices
-- 📝 **[Changelog](./CHANGELOG.md)** - Release history
+
+* 📖 **[API Documentation](https://www.google.com/search?q=./docs/API.md)** - Complete API reference
+* 🔒 **[Security Guide](https://www.google.com/search?q=./SECURITY.md)** - Security best practices
+* 📝 **[Changelog](https://www.google.com/search?q=./CHANGELOG.md)** - Release history
 
 ### Community
-- 💬 **[GitHub Discussions](https://github.com/yourusername/cipherion-client/discussions)** - Community support
-- 🐛 **[Issues](https://github.com/yourusername/cipherion-client/issues)** - Bug reports
-- 📧 **Email**: support@cipherion.com
 
-### Enterprise Support
-For enterprise support, custom implementations, or consulting services, please contact our team.
+* 🐛 **[Issues](https://www.google.com/search?q=https://github.com/OneBoatSolutions/Cipherion-JavaScript-SDK/issues)** - Bug reports
+* 📧 **Email**: support@cipherion.com
 
 ---
 
 <div align="center">
 
 **Made with ❤️ by the Cipherion Team**
-
-[![GitHub stars](https://img.shields.io/github/stars/OneBoatSolutions/Cipherion-JavaScript-SDK.git?style=social)](https://github.com/OneBoatSolutions/Cipherion-JavaScript-SDK)
-[![Twitter Follow](https://img.shields.io/twitter/follow/cipherion?style=social)](https://twitter.com/cipherion)
 
 </div>

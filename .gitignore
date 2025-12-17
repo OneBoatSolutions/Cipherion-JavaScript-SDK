@@ -4,3 +4,5 @@ cipherion-logs/
 node_modules
 .env
 dist
+*.tgz
+.env.*
