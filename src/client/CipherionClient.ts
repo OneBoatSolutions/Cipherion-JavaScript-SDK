@@ -78,15 +78,15 @@ export class CipherionClient {
    */
   async encrypt(data: string): Promise<string> {
     const startTime = Date.now();
-    
+
     try {
       Validator.validateData(data);
       const finalPassphrase = this.config.passphrase;
-      
+
       if (!finalPassphrase) {
         throw new CipherionError('Passphrase is required', 400);
       }
-      
+
       Validator.validatePassphrase(finalPassphrase);
 
       const response = await this.httpClient.post<EncryptResponse>(
@@ -106,8 +106,19 @@ export class CipherionClient {
 
       return response.data.encrypted_output;
     } catch (error: any) {
-      const status = error.response?.status || 500;
-      const serverMessage = error.response?.data?.message || error.message;
+
+      let status = 500;
+      let serverMessage = 'Unknown error';
+
+      if (error instanceof CipherionError) {
+        status = error.statusCode;
+        serverMessage = error.message;
+      } else {
+        // Fallback for raw Axios errors
+        status = error.response?.status || 500;
+        serverMessage = error.response?.data?.message || error.message;
+      }
+
       const durationMs = Date.now() - startTime;
 
       if (this.config.enableLogging) {
@@ -138,7 +149,7 @@ export class CipherionClient {
    */
   async decrypt(encryptedData: string): Promise<string> {
     const startTime = Date.now();
-    
+
     try {
       Validator.validateEncryptedData(encryptedData);
       const finalPassphrase = this.config.passphrase;
@@ -164,13 +175,22 @@ export class CipherionClient {
 
       return response.data.plaintext;
     } catch (error: any) {
-      const status = error.response?.status || 500;
-      const serverMessage = error.response?.data?.message || error.message;
+      let status = 500;
+      let serverMessage = 'Unknown error';
+
+      if (error instanceof CipherionError) {
+        status = error.statusCode;
+        serverMessage = error.message;
+      } else {
+        status = error.response?.status || 500;
+        serverMessage = error.response?.data?.message || error.message;
+      }
+
       const durationMs = Date.now() - startTime;
 
       if (this.config.enableLogging) {
         this.logger.logCryptoOperation('decrypt', 'error', {
-          dataType: 'string',
+          dataType: this.getDataType(encryptedData),
           dataLength: encryptedData?.length,
           durationMs,
           statusCode: status,
@@ -182,33 +202,33 @@ export class CipherionClient {
     }
   }
 
- /**
-   * Encrypts complex data structures while preserving structure
-   * * @param data - The data structure to encrypt
-   * @param options - Optional encryption configuration
-   * @returns Promise resolving to encrypted data with metadata
-   * * @example
-   * ```typescript
-   * * // Simple usage (no exclusions)
-   * const result = await client.deepEncrypt(data);
-   * * // With field exclusions
-   * const result = await client.deepEncrypt(data, {
-   * exclude_fields: ['profile.id', 'users[0]'],
-   * exclude_patterns: ['_id', '*_at']
-   * });
-   * ```
-   */
+  /**
+    * Encrypts complex data structures while preserving structure
+    * * @param data - The data structure to encrypt
+    * @param options - Optional encryption configuration
+    * @returns Promise resolving to encrypted data with metadata
+    * * @example
+    * ```typescript
+    * * // Simple usage (no exclusions)
+    * const result = await client.deepEncrypt(data);
+    * * // With field exclusions
+    * const result = await client.deepEncrypt(data, {
+    * exclude_fields: ['profile.id', 'users[0]'],
+    * exclude_patterns: ['_id', '*_at']
+    * });
+    * ```
+    */
   async deepEncrypt(data: any, options?: DeepEncryptOptions): Promise<DeepEncryptResponse['data']> {
     const startTime = Date.now();
-    
+
     try {
       Validator.validateData(data);
       const finalPassphrase = this.config.passphrase;
-      
+
       if (!finalPassphrase) {
         throw new CipherionError('Passphrase is required', 400);
       }
-      
+
       Validator.validatePassphrase(finalPassphrase);
 
       const requestBody: DeepEncryptRequest = {
@@ -238,7 +258,7 @@ export class CipherionClient {
 
       return response.data;
     } catch (error: any) {
-      const status = error.response?.status || 500;
+      const status = error.status || error.response?.status || 500;
       const serverMessage = error.response?.data?.message || error.message;
       const durationMs = Date.now() - startTime;
 
@@ -314,7 +334,7 @@ export class CipherionClient {
 
       return response.data;
     } catch (error: any) {
-      const status = error.response?.status || 500;
+      const status = error.status || error.response?.status || 500;
       const serverMessage = error.response?.data?.message || error.message;
       const durationMs = Date.now() - startTime;
 
@@ -326,7 +346,7 @@ export class CipherionClient {
           failGracefully: options?.fail_gracefully,
           durationMs,
           statusCode: status,
-          errorMessage: " data may be corrupted or "+serverMessage,
+          errorMessage: " data may be corrupted or " + serverMessage,
         });
       }
 
@@ -345,7 +365,7 @@ export class CipherionClient {
     options?: MigrationOptions
   ): Promise<MigrationResult> {
     const finalPassphrase = this.config.passphrase;
-    
+
     if (!finalPassphrase) {
       throw new CipherionError('Passphrase is required for migration', 400);
     }
@@ -415,7 +435,7 @@ export class CipherionClient {
     options?: MigrationOptions
   ): Promise<MigrationResult> {
     const finalPassphrase = this.config.passphrase;
-    
+
     if (!finalPassphrase) {
       throw new CipherionError('Passphrase is required for migration', 400);
     }
@@ -488,7 +508,7 @@ export class CipherionClient {
    */
   updateConfig(newConfig: Partial<CipherionConfig>): void {
     const { apiKey, passphrase, ...safeConfig } = newConfig;
-    
+
     if (apiKey || passphrase) {
       this.logger.warn('Attempted to update sensitive credentials - operation ignored');
       throw new CipherionError(
@@ -499,7 +519,7 @@ export class CipherionClient {
 
     this.config = { ...this.config, ...safeConfig };
     Validator.validateConfig(this.config);
-    
+
     if (safeConfig.baseUrl || safeConfig.timeout !== undefined) {
       this.httpClient = new HttpClient(
         this.config.baseUrl,

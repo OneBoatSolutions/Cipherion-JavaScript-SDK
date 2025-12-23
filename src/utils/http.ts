@@ -31,7 +31,7 @@ export class HttpClient {
     this.setupInterceptors();
   }
 
- 
+
   private validateConfiguration(baseUrl: string, apiKey: string, timeout: number): void {
     if (!baseUrl || typeof baseUrl !== 'string') {
       throw new CipherionError('Invalid base URL provided', 400);
@@ -46,7 +46,7 @@ export class HttpClient {
     }
   }
 
- 
+
   private createAxiosInstance(baseUrl: string, apiKey: string, timeout: number): AxiosInstance {
     return axios.create({
       baseURL: baseUrl,
@@ -62,7 +62,7 @@ export class HttpClient {
     });
   }
 
- 
+
   private setupInterceptors(): void {
     // Request interceptor
     this.client.interceptors.request.use(
@@ -80,15 +80,15 @@ export class HttpClient {
     );
   }
 
-  
+
   private handleRequest(config: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
-  
-    config.metadata = { 
+
+    config.metadata = {
       startTime: Date.now(),
       retryCount: config.metadata?.retryCount || 0,
     };
 
-   
+
     if (config.data) {
       this.logger.debug('Outgoing request', {
         method: config.method?.toUpperCase(),
@@ -103,8 +103,8 @@ export class HttpClient {
 
   private handleSuccessResponse(response: AxiosResponse): AxiosResponse {
     const duration = Date.now() - (response.config.metadata?.startTime ?? 0);
-    
-  
+
+
 
     if (!response.data || typeof response.data !== 'object') {
       throw new CipherionError('Invalid API response format', 500);
@@ -113,11 +113,11 @@ export class HttpClient {
     return response;
   }
 
- 
+
   private async handleErrorResponse(error: any): Promise<any> {
     const config = error.config;
     const retryCount = config?.metadata?.retryCount || 0;
- 
+
     const cipherionError = CipherionError.fromAxiosError(error);
 
     if (this.shouldRetry(cipherionError, retryCount)) {
@@ -127,7 +127,7 @@ export class HttpClient {
       });
 
       await this.sleep(delay);
-      
+
       // Increment retry count and retry
       config.metadata.retryCount = retryCount + 1;
       return this.client.request(config);
@@ -136,7 +136,7 @@ export class HttpClient {
     return Promise.reject(cipherionError);
   }
 
- 
+
   private shouldRetry(error: CipherionError, retryCount: number): boolean {
     return retryCount < this.MAX_RETRIES && error.isRetryable();
   }
@@ -170,23 +170,26 @@ export class HttpClient {
       }
 
       const response: AxiosResponse<T> = await this.client.post(url, data, config);
-      
+
       if (response.status < 200 || response.status >= 300) {
+        const errorData = response.data as any;
+        const errorMessage = errorData?.message || 'Unexpected response status';
+        const errorDetails = errorData?.error?.details || JSON.stringify(errorData);
+
         throw new CipherionError(
-          'Unexpected response status',
+          errorMessage,
           response.status,
-          JSON.stringify(response.data)
+          errorDetails
         );
       }
 
       return response.data;
     } catch (error) {
-  
+
       if (error instanceof CipherionError) {
         throw error;
       }
-      
-      // Otherwise, wrap in CipherionError
+  
       this.logger.error('POST request failed', error);
       throw CipherionError.fromAxiosError(error);
     }
