@@ -256,7 +256,7 @@ export class CipherionClient {
         });
       }
 
-      return response.data;
+      return response.data.encrypted;
     } catch (error: any) {
       const status = error.status || error.response?.status || 500;
       const serverMessage = error.response?.data?.message || error.message;
@@ -332,7 +332,7 @@ export class CipherionClient {
         });
       }
 
-      return response.data;
+      return response.data.data;
     } catch (error: any) {
       const status = error.status || error.response?.status || 500;
       const serverMessage = error.response?.data?.message || error.message;
